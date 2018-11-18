@@ -10,6 +10,7 @@ use LanguageServerProtocol\MessageType;
 use Webmozart\PathUtil\Path;
 use Sabre\Event\Promise;
 use function Sabre\Event\coroutine;
+use SplFileObject;
 
 class Indexer
 {
@@ -106,6 +107,65 @@ class Indexer
 
             $pattern = Path::makeAbsolute('**/*.php', $this->rootPath);
             $uris = yield $this->filesFinder->find($pattern);
+
+            echo count($uris);
+
+            $options = getopt('', ['exclude-paths::']);
+            $excludePathsString = (($options['exclude-paths'] ?? ''));
+
+            if ($excludePathsString !== '') {
+                if (basename($excludePathsString) === '.lsp-ignore') {
+                    $nodes = [];
+                    $ignoreFilePath = Path::makeAbsolute(trim($excludePathsString), $this->rootPath);
+
+                    if (!is_file($ignoreFilePath)) {
+                        echo 'ignore file not found!'.PHP_EOL;
+                    } else {
+                        $ignoreFile = new \SplFileObject($ignoreFilePath);
+
+                        // Loop until we reach the end of the file.
+                        while (!$ignoreFile->eof()) {
+                            $line = rtrim($ignoreFile->fgets());
+                            $node = Path::makeAbsolute($line, $this->rootPath);
+                            // Echo one line from the file.
+                            if ($line !== '' && strpos($line, '#') === false) {
+                                if (file_exists($node) || is_dir($node)) {
+                                    $nodes[] = $node;
+                                } else {
+                                    echo 'Node not found! ' . $node . PHP_EOL;
+                                }
+                            }
+                        }
+
+                        // Unset the file to call __destruct(), closing the file handle.
+                        $file = null;
+
+                        echo 'Files and folders to exclude:' . PHP_EOL;
+                        var_dump($nodes);
+
+                        if (count($nodes) > 0) {
+                            $uris = array_filter($uris, function ($uri) use ($nodes) {
+                                // echo 'Items processed '.PHP_EOL;
+
+                                $items = array_filter($nodes, function ($node) use ($uri) {
+                                    // echo 'file ' . $uri . PHP_EOL;
+                                    // echo 'node ' . $node . PHP_EOL;
+
+                                    return strpos($uri, $node) !== false;
+                                });
+
+                                // var_dump($items);
+                                return count($items) === 0;
+                            });
+                        }
+                    }
+
+                } else {
+                    echo 'Not proper ignore file name, must be .lsp-ignore'.PHP_EOL;
+                }
+            }
+            var_dump($uris);
+            echo count($uris);
 
             $count = count($uris);
             $startTime = microtime(true);
